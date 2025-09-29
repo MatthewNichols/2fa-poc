@@ -1,0 +1,18 @@
+{
+  "users": [
+    {
+      "username": "johndoe",
+      "password": "password1",
+      "admin": false,
+      "issuer": "Gloria",
+      "config": {
+        "algo": "sha1",
+        "digits": 6,
+        "period": 300,
+        "secretSize": 10
+      },
+      "secret": "5HOACDWVFM5O6Z3V",
+      "url": "otpauth://totp/Gloria:johndoe?issuer=Gloria&period=300&secret=5HOACDWVFM5O6Z3V"
+    }
+  ]
+}
