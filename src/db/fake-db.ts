@@ -1,7 +1,7 @@
 // A conveniencse fake database for the POC. 
 // YES I KNOW THIS IS NOT SUITABLE FOR PRODUCTION, 
 // or anything other than a POC really
- 
+
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Totp } from 'time2fa';
@@ -11,6 +11,10 @@ export interface IUser {
   username: string;
   password: string;
   admin?: boolean;
+  /** Has 2FA been setup? Not stored in DB */
+  twoFAuthRequired?: boolean;
+  /** Has 2FA been confirmed with at least one successful passcode roundtrip */
+  twoFAuthConfigConfirmed: boolean;
   // TOTP properties
   issuer?: string;
   config?: {
@@ -45,12 +49,20 @@ export async function saveUser(user: IUser) {
     throw new Error('Users not loaded');
   }
 
+  if (user.password === undefined || user.username === undefined) {
+    throw new Error('Username and Password is required');
+  }
+
   if (user.admin === undefined) {
     user.admin = false;
   }
 
+  if (user.twoFAuthConfigConfirmed === undefined) {
+    user.twoFAuthConfigConfirmed = false;
+  }
+
   const existingUser = users.find((u) => u.username === user.username);
-  if (existingUser) {
+  if (existingUser && user.password) {
     existingUser.password = user.password;
     existingUser.issuer = user.issuer;
     existingUser.config = user.config;
@@ -64,25 +76,42 @@ export async function saveUser(user: IUser) {
   await fs.writeFile(filePath, JSON.stringify({ users }, null, 2));
 }
 
+function addUserCalculatedFields(user: IUser | undefined): IUser | undefined {
+  if (!user) {
+    return undefined;
+  }
+
+  return {
+    ...user,
+    // Calculate twoFAuthRequired (i.e.: 2FA was setup and confirmed for this user)
+    twoFAuthRequired: user?.secret !== undefined && user.twoFAuthConfigConfirmed,
+  };
+}
+
 export function getUser(username: string): IUser | undefined {
   if (!usersLoaded) {
     throw new Error('Users not loaded');
   }
 
-  return users.find((user) => user.username === username);
+  const userFromDB = users.find((user) => user.username === username);
+  if (!userFromDB) {
+    return undefined;
+  }
+
+  return addUserCalculatedFields(userFromDB);
 }
 
-export function validateUser(username: string, password: string): boolean {
+export function validateUserPassword(username: string, password: string): IUser | undefined {
   if (!usersLoaded) {
     throw new Error('Users not loaded');
   }
 
-  return users.some(
+  return addUserCalculatedFields(users.find(
     (user) => user.username === username && user.password === password
-  );
+  ));
 }
 
-export function validateUserTotp(username: string, passcode: string): boolean {
+export function validateUser2FA(username: string, passcode: string): boolean {
   if (!usersLoaded) {
     throw new Error('Users not loaded');
   }

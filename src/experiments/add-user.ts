@@ -10,6 +10,8 @@ async function main() {
   const user: IUser = {
     username: 'johndoe',
     password: 'password1',
+    admin: false,
+    twoFAuthConfigConfirmed: false
   };
   
   await saveUser(user);

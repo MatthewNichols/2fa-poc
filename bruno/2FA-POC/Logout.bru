@@ -1,0 +1,22 @@
+meta {
+  name: Logout
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{apiBaseUrl}}/logout
+  body: none
+  auth: inherit
+}
+
+body:json {
+  {
+    "username": "johndoe",
+    "password": "password1"
+  }
+}
+
+settings {
+  encodeUrl: true
+}
