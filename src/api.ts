@@ -1,8 +1,19 @@
 import { Express } from 'express';
+import { Totp, generateConfig } from "time2fa";
 import { IUser, validateUserPassword, validateUser2FA, saveUser } from './db/fake-db';
 import { checkAuthAndRoles, CustomSession, storeAuthInSession } from './session';
 
 export function setupApi(app: Express) {
+  /**
+   * Set up common 2FA config. Is set for a longer period to 
+   * allow for use 
+   */
+  const twoFAuthConfig = generateConfig(
+    {
+      period: 300,
+    }
+  );
+
   app.get('/api/hello', (req, res) => {
     res.json({ hello: 'world' });
   });
@@ -44,13 +55,21 @@ export function setupApi(app: Express) {
     }
   });
 
+  /**
+   * Setup 2FA for current user. The user is then directed to 
+   * do a 2FA verify prior to the setup being complete and enforced. 
+   */
   app.post('/api/setup-2fa', checkAuthAndRoles(['user']), (req, res) => {
     const customSession = req.session as CustomSession;
     const user = customSession.user as IUser;
     if (user) {
+      // If 2FA already setup, return error. User can use /api/setup-2fa/reset to reset
       if (user.twoFAuthRequired) {
         return res.status(400).json({ success: false, error: '2FA already setup' });
       }
+
+
+
       res.json(user);
     } else {
       res.status(401).json({ success: false, error: 'Unauthorized' });
