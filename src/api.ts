@@ -1,7 +1,9 @@
 import { Express } from 'express';
 import { Totp, generateConfig } from "time2fa";
-import { IUser, validateUserPassword, validateUser2FA, saveUser } from './db/fake-db';
-import { checkAuthAndRoles, CustomSession, storeAuthInSession } from './session';
+import { IUser, validateUserPassword, validateUser2FA, saveUser, TwoFAuthType } from './db/fake-db';
+import { checkAuthAndRoles, CustomSession, storeAuthInSession, storeOtpPasscodeInSession, storeTwoFAuthCompletedInSession } from './session';
+import { sendOTP } from './fake-message-channel';
+import { generateNumericPasscode } from './two-fa-mechanics';
 
 export function setupApi(app: Express) {
   /**
@@ -10,6 +12,7 @@ export function setupApi(app: Express) {
    */
   const twoFAuthConfig = generateConfig(
     {
+      // this will be a short period in production
       period: 300,
     }
   );
@@ -32,12 +35,39 @@ export function setupApi(app: Express) {
 
     const user = validateUserPassword(username, password);
     if (user) {
-      storeAuthInSession(req, username, !!user.admin, user.twoFAuthRequired!);
+      const twoFAuthNeeded = user.twoFAuthType !== 'none';
+      storeAuthInSession(req, username, !!user.admin, twoFAuthNeeded);
+      if (twoFAuthNeeded) {
+        if (user.twoFAuthType === 'sent-otp') {
+          const otpValue = generateNumericPasscode(6);
+          storeOtpPasscodeInSession(req, otpValue);
+          sendOTP('123456');
+        } else if (user.twoFAuthType === 'totp') {
+          throw new Error('Not implemented');
+        }
+      }
       res.json({ success: true });
     } else {
       res.status(401).json({ success: false, error: 'Invalid username or password' });
     }
   })
+
+  app.post('/api/submit-otp', (req, res) => {
+    const otp = req.body.otp || '';
+    const customSession = req.session as CustomSession;
+    const user = customSession.user as IUser;
+    if (user) {
+      const isValid = validateUser2FA(user, otp);
+      if (isValid) {
+        storeTwoFAuthCompletedInSession(req);
+        res.json({ success: true });
+      } else {
+        res.status(401).json({ success: false, error: 'Invalid OTP' });
+      }
+    } else {
+      res.status(401).json({ success: false, error: 'Invalid OTP' });
+    }
+  });
 
   app.post('/api/logout', (req, res) => {
     req.session.destroy(() => {
@@ -60,14 +90,26 @@ export function setupApi(app: Express) {
    * do a 2FA verify prior to the setup being complete and enforced. 
    */
   app.post('/api/setup-2fa', checkAuthAndRoles(['user']), (req, res) => {
+    const twoFAuthType = req.body.twoFAuthType || 'none' as TwoFAuthType;
     const customSession = req.session as CustomSession;
     const user = customSession.user as IUser;
+
     if (user) {
       // If 2FA already setup, return error. User can use /api/setup-2fa/reset to reset
-      if (user.twoFAuthRequired) {
+      if (user.twoFAuthType !== 'none') {
         return res.status(400).json({ success: false, error: '2FA already setup' });
       }
 
+      user.twoFAuthType = twoFAuthType;
+      user.twoFAuthConfigConfirmed = false;
+      if (twoFAuthType === 'totp') {
+        user.config = twoFAuthConfig;
+      } else if (twoFAuthType === 'none') {
+        throw new Error('Use Reset to remove 2FA');
+      }
+      // There isn't really any thing to do for the 'sent-otp' state here
+
+      saveUser(user);
 
 
       res.json(user);
@@ -83,11 +125,11 @@ export function setupApi(app: Express) {
     const customSession = req.session as CustomSession;
     const user = customSession.user as IUser;
     if (user) {
-      if (!user.twoFAuthRequired) {
+      if (!user.twoFAuthType) {
         return res.status(400).json({ error: '2FA not setup' });
       } else {
         user.twoFAuthConfigConfirmed = false;
-        user.twoFAuthRequired = false;
+        user.twoFAuthType = "none";
         user.issuer = undefined;
         user.config = undefined;
         user.secret = undefined;

@@ -1,3 +1,4 @@
+import { randomInt } from "crypto";
 import { Totp, generateConfig } from "time2fa";
 import { IUser } from "./db/fake-db";
 
@@ -18,4 +19,20 @@ export function add2FA(user: IUser): IUser {
     twoFAuthConfigConfirmed: false,
     //passcodes: passcodes,
   }
+}
+
+/**
+ * Generates a numeric passcode using Nodes crypto.randomInt()
+ */
+export function generateNumericPasscode(numberOfDigits: number = 6): string {
+  if (numberOfDigits < 1) {
+    throw new Error("Number of digits must be at least 1");
+  }
+  
+  let passcode = "";
+  for (let i = 0; i < numberOfDigits; i++) {
+    passcode += String(randomInt(10));
+  }
+
+  return passcode;
 }

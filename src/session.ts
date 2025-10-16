@@ -1,9 +1,12 @@
 import { Express } from "express";
 import session, { Session } from "express-session";
+import { TwoFAuthType } from "./db/fake-db";
 
 export type CustomSession = Session & {
   user?: RequestUser;
-  twoFAuthRequired?: boolean;
+  /** Has the user completed the 2FA login, if needed? */
+  twoFAuthNeeded: boolean;
+  otpPasscode?: string;
 };
 
 export function setupSession(app: Express) {
@@ -16,14 +19,28 @@ export function setupSession(app: Express) {
   );
 }
 
-export function storeAuthInSession(req: any, userName: string, isAdmin: boolean, twoFAuthRequired: boolean) {
+export function storeAuthInSession(req: any, userName: string, isAdmin: boolean, twoFAuthNeeded: boolean) {
   const session = req.session as CustomSession;
   session.user = {
     username: userName,
     roles: isAdmin ? ['admin', 'user'] : ['user']
   }
 
-  session.twoFAuthRequired = twoFAuthRequired;
+  session.twoFAuthNeeded = twoFAuthNeeded;
+}
+
+/**
+ * Once the user has completed the 2FA login, set this to false
+ * @param req 
+ */
+export function storeTwoFAuthCompletedInSession(req: any) {
+  const session = req.session as CustomSession;
+  session.twoFAuthNeeded = false;
+}
+
+export function storeOtpPasscodeInSession(req: any, otpPasscode: string) {
+  const session = req.session as CustomSession;
+  session.otpPasscode = otpPasscode;
 }
 
 export const checkAuthAndRoles = (roles: string[] = []): AuthenticationHandler => {
@@ -33,7 +50,7 @@ export const checkAuthAndRoles = (roles: string[] = []): AuthenticationHandler =
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    if (customSession.twoFAuthRequired) {
+    if (customSession.twoFAuthNeeded) {
       return res.status(401).json({ error: "Login process not completed" });
     }
 

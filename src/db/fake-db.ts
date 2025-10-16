@@ -6,13 +6,15 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Totp } from 'time2fa';
 
+export type TwoFAuthType = 'totp' | 'sent-otp' | 'none';
+
 export interface IUser {
   /** Must be unique */
   username: string;
   password: string;
   admin?: boolean;
-  /** Has 2FA been setup? Not stored in DB */
-  twoFAuthRequired?: boolean;
+  /** Has 2FA been setup? What type? */
+  twoFAuthType: TwoFAuthType;
   /** Has 2FA been confirmed with at least one successful passcode roundtrip */
   twoFAuthConfigConfirmed: boolean;
   // TOTP properties
@@ -37,7 +39,10 @@ export async function loadUsers() {
     const fileContent = await fs.readFile(filePath, 'utf8');
     const data = JSON.parse(fileContent);
     users.length = 0; // Clear existing users
-    users.push(...data.users);
+    users.push(...data.users.map((user: IUser) => ({ 
+      ...user,
+      twoFAuthType: user.twoFAuthType || 'none', 
+    })));
     usersLoaded = true;
   } catch (error) {
     console.error('Error loading users:', error);
@@ -76,18 +81,6 @@ export async function saveUser(user: IUser) {
   await fs.writeFile(filePath, JSON.stringify({ users }, null, 2));
 }
 
-function addUserCalculatedFields(user: IUser | undefined): IUser | undefined {
-  if (!user) {
-    return undefined;
-  }
-
-  return {
-    ...user,
-    // Calculate twoFAuthRequired (i.e.: 2FA was setup and confirmed for this user)
-    twoFAuthRequired: user?.secret !== undefined && user.twoFAuthConfigConfirmed,
-  };
-}
-
 export function getUser(username: string): IUser | undefined {
   if (!usersLoaded) {
     throw new Error('Users not loaded');
@@ -98,7 +91,7 @@ export function getUser(username: string): IUser | undefined {
     return undefined;
   }
 
-  return addUserCalculatedFields(userFromDB);
+  return userFromDB;
 }
 
 export function validateUserPassword(username: string, password: string): IUser | undefined {
@@ -106,15 +99,17 @@ export function validateUserPassword(username: string, password: string): IUser 
     throw new Error('Users not loaded');
   }
 
-  return addUserCalculatedFields(users.find(
+  return users.find(
     (user) => user.username === username && user.password === password
-  ));
+  );
 }
 
 export function validateUser2FA(username: string, passcode: string): boolean {
   if (!usersLoaded) {
     throw new Error('Users not loaded');
   }
+
+
 
   const user = users.find((u) => u.username === username);
   if (!user || !user.secret) {
